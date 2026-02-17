@@ -1,14 +1,11 @@
-pub fn add(left: u64, right: u64) -> u64 {
-    left + right
+use wasm_bindgen::prelude::*;
+
+#[wasm_bindgen]
+pub fn saludar_motor(nombre: &str) -> String {
+    format!("¡Hola {}, el motor de MathForge en Rust está vivo!", nombre)
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn it_works() {
-        let result = add(2, 2);
-        assert_eq!(result, 4);
-    }
+#[wasm_bindgen]
+pub fn sumar_test(a: f64, b: f64) -> f64 {
+    a + b
 }

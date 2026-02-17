@@ -1,0 +1,8 @@
+{
+  "name": "math-engine",
+  "version": "0.1.0",
+  "type": "module",
+  "main": "./pkg/math_engine.js",
+  "types": "./pkg/math_engine.d.ts",
+  "files": ["pkg"]
+}
