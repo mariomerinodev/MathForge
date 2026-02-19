@@ -7,6 +7,7 @@ enum Token {
     Minus,
     Multiply,
     Divide,
+    Power,
     OpenParen,
     CloseParen,
     EOF,
@@ -19,6 +20,7 @@ enum Expression {
     Subtract(Box<Expression>, Box<Expression>),
     Multiply(Box<Expression>, Box<Expression>),
     Divide(Box<Expression>, Box<Expression>),
+    Power(Box<Expression>, Box<Expression>),
 }
 
 impl Expression {
@@ -29,6 +31,18 @@ impl Expression {
             Expression::Subtract(a, b) => a.evaluate() - b.evaluate(),
             Expression::Multiply(a, b) => a.evaluate() * b.evaluate(),
             Expression::Divide(a, b) => a.evaluate() / b.evaluate(),
+            Expression::Power(a, b) => a.evaluate().powf(b.evaluate()),
+        }
+    }
+
+    fn visualize(&self) -> String {
+        match self {
+            Expression::Number(n) => n.to_string(),
+            Expression::Add(l, r) => format!("({} + {})", l.visualize(), r.visualize()),
+            Expression::Subtract(l, r) => format!("({} - {})", l.visualize(), r.visualize()),
+            Expression::Multiply(l, r) => format!("({} * {})", l.visualize(), r.visualize()),
+            Expression::Divide(l, r) => format!("({} / {})", l.visualize(), r.visualize()),
+            Expression::Power(l, r) => format!("({} ^ {})", l.visualize(), r.visualize()),
         }
     }
 }
@@ -73,6 +87,7 @@ impl Lexer {
             '/' => Token::Divide,
             '(' => Token::OpenParen,
             ')' => Token::CloseParen,
+            '^' => Token::Power,
             _ => Token::EOF,
         };
 
@@ -109,36 +124,48 @@ impl Parser {
     }
 
     fn consume(&mut self, expected: Token) {
-        // Usamos mem::discriminant o simplemente comparamos si no son Number
-        // Para simplificar, comparamos directamente
         if std::mem::discriminant(&self.current_token) == std::mem::discriminant(&expected) {
             self.current_token = self.lexer.next_token();
         }
     }
 
+    // Nivel 4 (Máximo): Números y Paréntesis
     fn parse_factor(&mut self) -> Box<Expression> {
-    match self.current_token.clone() {
-        Token::Number(n) => {
-            self.consume(Token::Number(0.0));
-            Box::new(Expression::Number(n))
+        match self.current_token.clone() {
+            Token::Number(n) => {
+                self.consume(Token::Number(0.0));
+                Box::new(Expression::Number(n))
+            }
+            Token::OpenParen => {
+                self.consume(Token::OpenParen);
+                let expr = self.parse_expression(); // Recursividad al inicio
+                self.consume(Token::CloseParen);
+                expr
+            }
+            _ => Box::new(Expression::Number(f64::NAN)),
         }
-        Token::OpenParen => {
-            self.consume(Token::OpenParen);
-            let expr = self.parse_expression();
-            self.consume(Token::CloseParen);
-            expr
-        }
-        // Si encontramos algo inesperado, devolvemos un "Número Especial" que indica error
-        _ => Box::new(Expression::Number(f64::NAN)),
     }
-}
 
-    fn parse_term(&mut self) -> Box<Expression> {
+    // Nivel 3: Potencias (Nuevo)
+    fn parse_power(&mut self) -> Box<Expression> {
         let mut left = self.parse_factor();
+
+        while matches!(self.current_token, Token::Power) {
+            self.consume(Token::Power);
+            let right = self.parse_factor();
+            left = Box::new(Expression::Power(left, right));
+        }
+        left
+    }
+
+    // Nivel 2: Multiplicación y División
+    fn parse_term(&mut self) -> Box<Expression> {
+        let mut left = self.parse_power(); // Llama al nivel de potencia
+
         while matches!(self.current_token, Token::Multiply | Token::Divide) {
             let op = self.current_token.clone();
             self.consume(op.clone());
-            let right = self.parse_factor();
+            let right = self.parse_power();
             left = match op {
                 Token::Multiply => Box::new(Expression::Multiply(left, right)),
                 Token::Divide => Box::new(Expression::Divide(left, right)),
@@ -148,8 +175,10 @@ impl Parser {
         left
     }
 
+    // Nivel 1 (Base): Suma y Resta
     pub fn parse_expression(&mut self) -> Box<Expression> {
-        let mut left = self.parse_term();
+        let mut left = self.parse_term(); // Llama al nivel de términos
+
         while matches!(self.current_token, Token::Plus | Token::Minus) {
             let op = self.current_token.clone();
             self.consume(op.clone());
@@ -209,6 +238,18 @@ pub fn get_tokens_debug(input: &str) -> String {
 }
 
 #[wasm_bindgen]
+pub fn get_ast_visual(input: &str) -> String {
+    if input.trim().is_empty() {
+        return "".to_string();
+    }
+    let lexer = Lexer::new(input);
+    let mut parser = Parser::new(lexer);
+    let ast = parser.parse_expression();
+
+    ast.visualize()
+}
+
+#[wasm_bindgen]
 pub fn solve(input: &str) -> f64 {
     if input.trim().is_empty() {
         return 0.0;
@@ -256,5 +297,11 @@ mod tests {
     fn test_invalid_expression() {
         let result = solve("5 + * 2");
         assert!(result.is_nan());
+    }
+
+    #[test]
+    fn test_powe_precedence() {
+        assert_eq!(solve("2 ^ 3 + 1"), 9.0);
+        assert_eq!(solve("2 * 3 ^ 2"), 18.0);
     }
 }
