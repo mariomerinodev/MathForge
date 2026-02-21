@@ -1,36 +1,56 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import { browser } from '$app/environment';
-  import init, { solve, count_tokens, get_ast_visual } from 'math-engine';
+  
+  import init, { solve, get_ast_visual, count_tokens } from '../../../../packages/math-engine/src/lib/wasm/math_engine.js';
 
-  let astVisual: string = "";
-  let expressionInput: string = "10 + 5 * 2^2";
-  let tokenCount: number = 0;
-  let finalResult: number = 0;
-  let error: string | null = null;
+  let expressionInput = "2x + 4x = 12";
+  let finalResult: any = "0";
+  let astVisual = "";
+  let tokenCount = 0;
   let isEngineReady = false;
+  let error: string | null = null;
 
   onMount(async () => {
-    await init('/math_engine_bg.wasm');
-    isEngineReady = true;
+    if (browser) {
+      try {
+        await init();
+        isEngineReady = true;
+        updateAnalysis();
+      } catch (e) {
+        console.error("Error al inicializar el motor WASM:", e);
+        error = "Error de motor";
+      }
+    }
   });
 
-  $: if (browser && isEngineReady) {
-    tokenCount = count_tokens(expressionInput);
-    const rawResult = solve(expressionInput);
-    
-    if (expressionInput.trim() === "") {
-      finalResult = 0;
-      error = null;
-    } else if (isNaN(rawResult)) {
-      error = "Syntax Error";
-      finalResult = 0;
-    } else {
-      error = null;
-      finalResult = rawResult;
-    }
+  function updateAnalysis() {
+    if (!isEngineReady) return;
 
-    astVisual = get_ast_visual(expressionInput);
+    try {
+      tokenCount = count_tokens(expressionInput);
+      
+      // Rust devuelve String, así que finalResult siempre será String
+      const result = solve(expressionInput);
+
+      if (expressionInput.trim() === "") {
+        finalResult = "0";
+        error = null;
+      } else {
+        finalResult = result as any;
+        error = null;
+      }
+
+      astVisual = get_ast_visual(expressionInput);
+    } catch (e) {
+      error = "Error de sintaxis";
+      finalResult = "0";
+    }
+  }
+
+  // Reactividad: se ejecuta cuando cambia el input o el motor está listo
+  $: if (browser && isEngineReady && expressionInput !== undefined) {
+    updateAnalysis();
   }
 </script>
 
@@ -38,79 +58,79 @@
   <script src="https://cdn.tailwindcss.com"></script>
 </svelte:head>
 
-<div class="min-h-screen bg-[#0f0f0f] bg-[radial-gradient(circle_at_top_right,#2d1b1b,#0f0f0f)] flex items-center justify-center p-4 font-sans text-gray-200">
+<main class="min-h-screen bg-[#1a1614] text-white p-4 flex flex-col items-center justify-center font-sans">
   
-  <main class="w-full max-w-xl bg-white/5 backdrop-blur-xl border border-white/10 rounded-[2rem] p-8 md:p-12 shadow-2xl">
-    
-    <header class="flex justify-between items-center mb-10">
-      <h1 class="text-3xl font-black bg-gradient-to-br from-[#ff5f6d] to-[#ffc371] bg-clip-text text-transparent tracking-tighter">
-        MathForge
-      </h1>
-      <div class="flex items-center gap-2 bg-black/30 px-3 py-1.5 rounded-full border border-white/5 text-[10px] uppercase tracking-widest text-gray-500">
-        <div class="w-1.5 h-1.5 rounded-full {isEngineReady ? 'bg-green-500 shadow-[0_0_8px_#4caf50]' : 'bg-yellow-500'}"></div>
-        {isEngineReady ? 'Engine Active' : 'Loading...'}
-      </div>
-    </header>
+  <div class="mb-6 flex items-center gap-2 bg-neutral-800/50 px-3 py-1 rounded-full border border-neutral-700">
+    <div class="w-2 h-2 rounded-full {isEngineReady ? 'bg-green-500 animate-pulse' : 'bg-red-500'}"></div>
+    <span class="text-[10px] uppercase tracking-tighter text-neutral-400 font-bold">
+      {isEngineReady ? 'Engine Active' : 'Engine Offline'}
+    </span>
+  </div>
 
-    <section class="space-y-3">
-      <div class="relative group">
-        <input 
-          type="text" 
-          bind:value={expressionInput} 
-          placeholder="Enter expression..."
-          class="w-full bg-black/20 border border-white/10 rounded-2xl px-6 py-5 text-xl font-mono text-white outline-none focus:border-[#ff5f6d]/50 focus:bg-black/40 transition-all placeholder:text-gray-700"
-          spellcheck="false"
-        />
-        {#if expressionInput}
-          <button 
-            on:click={() => expressionInput = ""}
-            class="absolute right-5 top-1/2 -translate-y-1/2 text-gray-600 hover:text-white text-2xl transition-colors"
-          >
-            ×
-          </button>
-        {/if}
-      </div>
-      <div class="flex justify-between px-2 text-[11px] text-gray-600 font-medium uppercase tracking-wider">
-        <span>Tokens detectados</span>
-        <span>Count: <span class="text-gray-400 font-mono">{tokenCount}</span></span>
-      </div>
-    </section>
+  <div class="w-full max-w-lg bg-[#25211f] rounded-3xl p-8 shadow-2xl border border-neutral-800">
+    <h1 class="text-3xl font-black mb-8 text-transparent bg-clip-text bg-gradient-to-r from-orange-400 to-rose-500 italic">
+      MathForge
+    </h1>
 
-    <section class="mt-12 mb-8 min-h-[140px] flex flex-col items-center justify-center border-t border-white/5 pt-8">
+    <div class="relative group">
+      <input 
+        type="text" 
+        bind:value={expressionInput}
+        placeholder="Escribe una ecuación..."
+        class="w-full bg-[#1a1614] border-2 border-neutral-700 rounded-2xl p-5 text-xl font-medium focus:outline-none focus:border-orange-500 transition-all placeholder:text-neutral-600"
+      />
+      <button 
+        on:click={() => expressionInput = ""}
+        aria-label="Borrar contenido"
+        title="Borrar"
+        class="absolute right-4 top-1/2 -translate-y-1/2 text-neutral-500 hover:text-white transition-colors"
+      >
+        <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+        </svg>
+      </button>
+    </div>
+
+    <div class="mt-2 flex justify-between px-2">
+      <span class="text-[10px] text-neutral-500 uppercase font-bold tracking-widest">Tokens</span>
+      <span class="text-[10px] text-neutral-500 font-mono italic">{tokenCount} detectados</span>
+    </div>
+
+    <div class="h-[1px] bg-neutral-800 my-8 w-full"></div>
+
+    <div class="text-center py-4">
+      <p class="text-[10px] text-neutral-500 uppercase font-bold tracking-[0.2em] mb-4">Resultado Final</p>
       {#if error}
-        <div class="flex items-center gap-2 text-[#ff5f6d] font-semibold animate-pulse">
-          <span>⚠️</span> {error}
-        </div>
+        <p class="text-2xl font-bold text-rose-500">{error}</p>
       {:else}
-        <span class="text-[10px] tracking-[0.3em] text-gray-600 font-bold mb-2">RESULTADO FINAL</span>
-        <div class="text-6xl md:text-7xl font-mono font-bold bg-gradient-to-br from-[#ff5f6d] to-[#ffc371] bg-clip-text text-transparent">
+        <p class="text-7xl font-black text-white tracking-tighter drop-shadow-lg">
           {finalResult}
-        </div>
+        </p>
       {/if}
-    </section>
+    </div>
 
-    <footer class="mt-6 pt-6 border-t border-dashed border-white/5">
-      <p class="text-[10px] text-gray-600 uppercase tracking-[0.2em] mb-4 text-center">Structure Analysis</p>
-      
-      <div class="bg-black/40 rounded-xl p-4 font-mono text-xs text-blue-300/70 overflow-x-auto whitespace-nowrap border border-white/5">
-        {#if astVisual}
-          <span class="text-gray-500">root</span> 
-          <span class="text-white/20 mx-2">→</span> 
-          {astVisual}
-        {:else}
-          <span class="text-gray-800 italic">Waiting for input...</span>
-        {/if}
+    <div class="mt-8">
+      <div class="bg-[#1a1614] rounded-xl p-4 border border-neutral-800/50">
+        <p class="text-[9px] text-neutral-600 uppercase font-bold mb-3 tracking-widest">Structure Analysis</p>
+        <div class="flex items-center gap-3">
+          <div class="h-4 w-[2px] bg-orange-500/50 rounded-full"></div>
+          <code class="text-orange-200/80 font-mono text-sm break-all">
+            {astVisual || 'Esperando entrada...'}
+          </code>
+        </div>
       </div>
-    </footer>
+    </div>
+  </div>
 
-  </main>
-</div>
+  <p class="mt-8 text-neutral-600 text-[10px] font-medium tracking-widest uppercase">
+    Monorepo Bridge: Apps & Packages
+  </p>
+</main>
 
 <style>
-  /* Importamos una fuente más "pro" */
-  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;700;900&family=JetBrains+Mono:wght@500;700&display=swap');
-  
   :global(body) {
-    font-family: 'Inter', sans-serif;
+    background-color: #1a1614;
+    margin: 0;
+    overflow: hidden;
   }
 </style>
