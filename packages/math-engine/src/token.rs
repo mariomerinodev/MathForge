@@ -1,11 +1,13 @@
 #[derive(Debug, PartialEq, Clone)]
 pub enum Token {
     Number(f64),
+    Variable(String),
     Plus,
     Minus,
     Multiply,
     Divide,
     Power,
+    Equal,
     OpenParen,
     CloseParen,
     EOF,
@@ -14,6 +16,7 @@ pub enum Token {
 #[derive(Debug, Clone)]
 pub enum Expression {
     Number(f64),
+    Variable(String),
     Add(Box<Expression>, Box<Expression>),
     Subtract(Box<Expression>, Box<Expression>),
     Multiply(Box<Expression>, Box<Expression>),

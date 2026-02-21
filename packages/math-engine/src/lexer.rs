@@ -20,6 +20,16 @@ impl Lexer {
         if self.pos >= self.input.len() { return Token::EOF; }
         let current_char = self.input[self.pos];
 
+        // Detectar letras y variables
+        if current_char.is_alphabetic() {
+            let mut var_str = String::new();
+            while self.pos < self.input.len() && self.input[self.pos].is_alphanumeric() {
+                var_str.push(self.input[self.pos]);
+                self.pos += 1;
+            }
+            return Token::Variable(var_str);
+        }
+
         if current_char.is_digit(10) || current_char == '.' {
             let mut num_str = String::new();
             while self.pos < self.input.len() && (self.input[self.pos].is_digit(10) || self.input[self.pos] == '.') {
@@ -37,6 +47,7 @@ impl Lexer {
             '(' => Token::OpenParen,
             ')' => Token::CloseParen,
             '^' => Token::Power,
+            '=' => Token::Equal,
             _ => Token::EOF,
         };
         self.pos += 1;
