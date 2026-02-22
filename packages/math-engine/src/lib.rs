@@ -5,7 +5,7 @@ mod parser;
 use wasm_bindgen::prelude::*;
 use crate::lexer::Lexer;
 use crate::parser::Parser;
-use crate::token::{Token, Expression};
+use crate::token::{Token, Expression, Fraction};
 
 #[wasm_bindgen]
 pub fn solve(input: &str) -> String {
@@ -15,23 +15,21 @@ pub fn solve(input: &str) -> String {
     if input.contains('=') {
         let (l, r) = parser.parse_statement();
 
-        // Si alguna es un error desde el parseo, cortamos rápido
         if let Expression::Error(msg) = *l { return msg; }
         if let Expression::Error(msg) = *r { return msg; }
 
-        // Unificamos: L - R = 0 (Que en nuestro nuevo AST es L + (-1 * R))
         let unified = Expression::Add(
             Box::new(l.expand()),
             Box::new(Expression::Multiply(
-                Box::new(Expression::Number(-1.0)),
+                Box::new(Expression::Number(Fraction::minus_one())),
                 Box::new(r.expand())
             ).expand())
         ).simplify();
 
-        let final_r = Expression::solve_linear(unified, Expression::Number(0.0), "x");
+        let final_r = Expression::solve_linear(unified, Expression::Number(Fraction::zero()), "x");
 
         match final_r {
-            Expression::Error(msg) => msg, // Reportamos el error limpio a Svelte
+            Expression::Error(msg) => msg,
             _ => format!("x = {}", final_r.visualize())
         }
     } else {

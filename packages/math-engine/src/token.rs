@@ -1,26 +1,65 @@
 use std::collections::BTreeMap;
+use std::ops::{Add, Sub, Mul, Div};
+use std::fmt;
 
+// 1. EL MOTOR DE FRACCIONES EXACTAS
+pub fn gcd(mut a: i64, mut b: i64) -> i64 {
+    while b != 0 { let temp = b; b = a % b; a = temp; }
+    a.abs()
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct Fraction {
+    pub num: i64,
+    pub den: i64,
+}
+
+impl Fraction {
+    pub fn new(num: i64, den: i64) -> Self {
+        if den == 0 { return Self { num: 0, den: 1 }; } 
+        let divisor = gcd(num, den);
+        let mut n = num / divisor;
+        let mut d = den / divisor;
+        if d < 0 { n = -n; d = -d; } 
+        Self { num: n, den: d }
+    }
+    
+    pub fn zero() -> Self { Self::new(0, 1) }
+    pub fn one() -> Self { Self::new(1, 1) }
+    pub fn minus_one() -> Self { Self::new(-1, 1) }
+}
+
+impl Add for Fraction { type Output = Self; fn add(self, other: Self) -> Self { Self::new(self.num * other.den + other.num * self.den, self.den * other.den) } }
+impl Sub for Fraction { type Output = Self; fn sub(self, other: Self) -> Self { Self::new(self.num * other.den - other.num * self.den, self.den * other.den) } }
+impl Mul for Fraction { type Output = Self; fn mul(self, other: Self) -> Self { Self::new(self.num * other.num, self.den * other.den) } }
+impl Div for Fraction { type Output = Self; fn div(self, other: Self) -> Self { Self::new(self.num * other.den, self.den * other.num) } }
+impl PartialEq for Fraction { fn eq(&self, other: &Self) -> bool { self.num == other.num && self.den == other.den } }
+impl fmt::Display for Fraction { 
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result { 
+        if self.den == 1 { write!(f, "{}", self.num) } else { write!(f, "{}/{}", self.num, self.den) } 
+    } 
+}
+
+// 2. DEFINICIÓN DEL AST
 #[derive(Debug, PartialEq, Clone)]
 pub enum Token {
-    Number(f64), Variable(String),
+    Number(Fraction), Variable(String),
     Plus, Minus, Multiply, Divide, Power,
     Equal, OpenParen, CloseParen, EOF,
 }
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Expression {
-    Number(f64),
+    Number(Fraction),
     Variable(String),
     Add(Box<Expression>, Box<Expression>),
-    // ELIMINADO: Subtract. El árbol es puramente aditivo y multiplicativo.
     Multiply(Box<Expression>, Box<Expression>),
     Divide(Box<Expression>, Box<Expression>),
     Power(Box<Expression>, Box<Expression>),
-    Error(String), // Manejo limpio de errores
+    Error(String),
 }
 
 impl Expression {
-    // 1. VISUALIZACIÓN INTELIGENTE (Oculta la normalización al usuario)
     pub fn visualize(&self) -> String {
         match self {
             Expression::Number(n) => n.to_string(),
@@ -28,25 +67,24 @@ impl Expression {
             Expression::Error(e) => format!("Error: {}", e),
             Expression::Add(l, r) => {
                 let l_str = l.visualize();
-                // Si el derecho es un negativo, lo mostramos como resta
                 if let Expression::Multiply(n, var) = &**r {
                     if let Expression::Number(val) = **n {
-                        if val < 0.0 {
-                            let var_str = if val == -1.0 { var.visualize() } else { format!("{} * {}", -val, var.visualize()) };
+                        if val.num < 0 {
+                            let positive_val = Fraction::new(-val.num, val.den);
+                            let var_str = if val == Fraction::minus_one() { var.visualize() } else { format!("{} * {}", positive_val, var.visualize()) };
                             return format!("({} - {})", l_str, var_str);
                         }
                     }
                 }
                 if let Expression::Number(n) = &**r {
-                    if *n < 0.0 { return format!("({} - {})", l_str, -n); }
+                    if n.num < 0 { return format!("({} - {})", l_str, Fraction::new(-n.num, n.den)); }
                 }
                 format!("({} + {})", l_str, r.visualize())
             }
             Expression::Multiply(l, r) => {
-                // Ocultar el "1 * x"
                 if let Expression::Number(n) = &**l {
-                    if *n == 1.0 { return r.visualize(); }
-                    if *n == -1.0 { return format!("-{}", r.visualize()); }
+                    if *n == Fraction::one() { return r.visualize(); }
+                    if *n == Fraction::minus_one() { return format!("-{}", r.visualize()); }
                 }
                 format!("({} * {})", l.visualize(), r.visualize())
             }
@@ -66,19 +104,16 @@ impl Expression {
         }
     }
 
-    // 2. EXPANSIÓN TOTAL DISTRIBUTIVA
     pub fn expand(self) -> Expression {
         match self {
             Expression::Multiply(l, r) => {
                 let l_exp = l.expand();
                 let r_exp = r.expand();
                 match (l_exp, r_exp) {
-                    // a * (b + c) = ab + ac
                     (a, Expression::Add(b, c)) => Expression::Add(
                         Box::new(Expression::Multiply(Box::new(a.clone()), b).expand()),
                         Box::new(Expression::Multiply(Box::new(a), c).expand())
                     ),
-                    // (a + b) * c = ac + bc
                     (Expression::Add(a, b), c) => Expression::Add(
                         Box::new(Expression::Multiply(a, Box::new(c.clone())).expand()),
                         Box::new(Expression::Multiply(b, Box::new(c)).expand())
@@ -92,7 +127,6 @@ impl Expression {
         }
     }
 
-    // 3. PUNTO FIJO DE SIMPLIFICACIÓN
     pub fn simplify(self) -> Expression {
         let mut current = self;
         loop {
@@ -102,33 +136,35 @@ impl Expression {
         }
     }
 
-    // Lógica interna de simplificación
     fn simplify_step(self) -> Expression {
         match self {
             Expression::Add(l, r) => {
                 let l_sim = l.simplify_step();
                 let r_sim = r.simplify_step();
                 
-                // Elementos neutros
-                if let Expression::Number(n) = l_sim { if n == 0.0 { return r_sim; } }
-                if let Expression::Number(n) = r_sim { if n == 0.0 { return l_sim; } }
+                if let Expression::Number(n) = l_sim { if n == Fraction::zero() { return r_sim; } }
+                if let Expression::Number(n) = r_sim { if n == Fraction::zero() { return l_sim; } }
 
                 let mut terms = Vec::new();
                 Self::flatten_add(Expression::Add(Box::new(l_sim), Box::new(r_sim)), &mut terms);
                 
-                let mut num_sum = 0.0;
-                let mut vars: BTreeMap<String, f64> = BTreeMap::new(); // <-- Fix del Bucle Infinito
+                let mut num_sum = Fraction::zero();
+                let mut vars: BTreeMap<String, Fraction> = BTreeMap::new(); 
                 let mut complex = Vec::new();
 
                 for term in terms {
                     match term {
-                        Expression::Number(n) => num_sum += n,
-                        Expression::Variable(v) => *vars.entry(v).or_insert(0.0) += 1.0,
+                        Expression::Number(n) => num_sum = num_sum + n,
+                        Expression::Variable(v) => {
+                            let e = vars.entry(v).or_insert(Fraction::zero());
+                            *e = *e + Fraction::one();
+                        },
                         Expression::Multiply(a, b) => {
                             match (*a, *b) {
                                 (Expression::Number(n), Expression::Variable(v)) | 
                                 (Expression::Variable(v), Expression::Number(n)) => {
-                                    *vars.entry(v).or_insert(0.0) += n;
+                                    let e = vars.entry(v).or_insert(Fraction::zero());
+                                    *e = *e + n;
                                 }
                                 (a_other, b_other) => complex.push(Expression::Multiply(Box::new(a_other), Box::new(b_other)))
                             }
@@ -139,8 +175,8 @@ impl Expression {
 
                 let mut final_expr: Option<Expression> = None;
                 for (v, coef) in vars {
-                    if coef == 0.0 { continue; }
-                    let term = if coef == 1.0 { Expression::Variable(v) } 
+                    if coef == Fraction::zero() { continue; }
+                    let term = if coef == Fraction::one() { Expression::Variable(v) } 
                                else { Expression::Multiply(Box::new(Expression::Number(coef)), Box::new(Expression::Variable(v))) };
                     final_expr = match final_expr {
                         None => Some(term),
@@ -155,7 +191,7 @@ impl Expression {
                     };
                 }
 
-                if num_sum != 0.0 || final_expr.is_none() {
+                if num_sum != Fraction::zero() || final_expr.is_none() {
                     let num_expr = Expression::Number(num_sum);
                     final_expr = match final_expr {
                         None => Some(num_expr),
@@ -170,10 +206,11 @@ impl Expression {
                 let r_sim = r.simplify_step();
                 match (l_sim.clone(), r_sim.clone()) {
                     (Expression::Number(n1), Expression::Number(n2)) => Expression::Number(n1 * n2),
-                    (other, Expression::Number(1.0)) | (Expression::Number(1.0), other) => other,
-                    (_, Expression::Number(0.0)) | (Expression::Number(0.0), _) => Expression::Number(0.0),
+                    (other, Expression::Number(n)) if n == Fraction::one() => other,
+                    (Expression::Number(n), other) if n == Fraction::one() => other,
+                    (_, Expression::Number(n)) if n == Fraction::zero() => Expression::Number(Fraction::zero()),
+                    (Expression::Number(n), _) if n == Fraction::zero() => Expression::Number(Fraction::zero()),
                     
-                    // MAGIA ASOCIATIVA: Convierte -1 * (5 * x) en -5 * x
                     (Expression::Number(n1), Expression::Multiply(a, b)) => {
                         if let Expression::Number(n2) = *a {
                             Expression::Multiply(Box::new(Expression::Number(n1 * n2)), b).simplify_step()
@@ -195,9 +232,18 @@ impl Expression {
                 let l_sim = l.simplify_step();
                 let r_sim = r.simplify_step();
                 match (l_sim, r_sim) {
-                    (_, Expression::Number(0.0)) => Expression::Error("División por cero".to_string()),
+                    (_, Expression::Number(n)) if n == Fraction::zero() => Expression::Error("División por cero".to_string()),
                     (Expression::Number(n1), Expression::Number(n2)) => Expression::Number(n1 / n2),
-                    (Expression::Number(0.0), _) => Expression::Number(0.0),
+                    (Expression::Number(n), _) if n == Fraction::zero() => Expression::Number(Fraction::zero()),
+                    
+                    // MAGIA: Convertir x / 3 en (1/3) * x
+                    (expr, Expression::Number(n)) => {
+                        let inv = Fraction::new(n.den, n.num);
+                        Expression::Multiply(
+                            Box::new(Expression::Number(inv)),
+                            Box::new(expr)
+                        ).simplify_step()
+                    },
                     (ls, rs) => Expression::Divide(Box::new(ls), Box::new(rs)),
                 }
             }
@@ -214,7 +260,6 @@ impl Expression {
         }
     }
 
-    // 4. SOLVER ROBUSTO
     pub fn solve_linear(left: Expression, right: Expression, var_name: &str) -> Expression {
         let l = left.simplify();
         let r = right.simplify();
@@ -223,7 +268,6 @@ impl Expression {
         if let Expression::Error(_) = r { return r; }
 
         if !l.contains_variable(var_name) {
-            // Evaluamos si llegamos a una identidad (ej. 0 = 0) o contradicción (ej. 5 = 0)
             if l == r { return Expression::Error("Infinitas soluciones (Identidad)".into()); }
             return Expression::Error("Sin solución (Contradicción)".into());
         }
@@ -231,9 +275,9 @@ impl Expression {
         match l {
             Expression::Add(a, b) => {
                 if a.contains_variable(var_name) {
-                    Self::solve_linear(*a, Expression::Add(Box::new(r), Box::new(Expression::Multiply(Box::new(Expression::Number(-1.0)), b))), var_name)
+                    Self::solve_linear(*a, Expression::Add(Box::new(r), Box::new(Expression::Multiply(Box::new(Expression::Number(Fraction::minus_one())), b))), var_name)
                 } else {
-                    Self::solve_linear(*b, Expression::Add(Box::new(r), Box::new(Expression::Multiply(Box::new(Expression::Number(-1.0)), a))), var_name)
+                    Self::solve_linear(*b, Expression::Add(Box::new(r), Box::new(Expression::Multiply(Box::new(Expression::Number(Fraction::minus_one())), a))), var_name)
                 }
             },
             Expression::Multiply(a, b) => {

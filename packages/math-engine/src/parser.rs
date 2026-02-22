@@ -1,4 +1,4 @@
-use crate::token::{Token, Expression};
+use crate::token::{Token, Expression, Fraction};
 use crate::lexer::Lexer;
 
 pub struct Parser {
@@ -23,7 +23,7 @@ impl Parser {
             let right = self.parse_expression();
             (left, right)
         } else {
-            (left, Box::new(Expression::Number(0.0)))
+            (left, Box::new(Expression::Number(Fraction::zero())))
         }
     }
 
@@ -34,12 +34,11 @@ impl Parser {
             self.consume();
             let right = self.parse_term();
             
-            // MAGIA DE INGENIERÍA: Normalizamos A - B -> A + (-1 * B)
             left = match op {
                 Token::Plus => Box::new(Expression::Add(left, right)),
                 Token::Minus => Box::new(Expression::Add(
                     left,
-                    Box::new(Expression::Multiply(Box::new(Expression::Number(-1.0)), right))
+                    Box::new(Expression::Multiply(Box::new(Expression::Number(Fraction::minus_one())), right))
                 )),
                 _ => left,
             };
@@ -72,11 +71,12 @@ impl Parser {
     }
 
     fn parse_factor(&mut self) -> Box<Expression> {
-        let mut expr = match self.current_token.clone() {
+        let token = self.current_token.clone();
+        let mut expr = match token {
             Token::Minus => {
                 self.consume();
                 let expr = self.parse_factor();
-                Box::new(Expression::Multiply(Box::new(Expression::Number(-1.0)), expr))
+                Box::new(Expression::Multiply(Box::new(Expression::Number(Fraction::minus_one())), expr))
             }
             Token::Number(n) => {
                 self.consume();
@@ -95,7 +95,6 @@ impl Parser {
             _ => Box::new(Expression::Error("Sintaxis inválida".to_string())),
         };
 
-        // Multiplicación implícita
         if matches!(self.current_token, Token::Variable(_) | Token::OpenParen) {
             expr = Box::new(Expression::Multiply(expr, self.parse_factor()));
         }
