@@ -32,49 +32,73 @@ impl Expression {
         }
     }
 
-    /// Recolecta términos de una cadena de sumas para aplanar el árbol
-    fn collect_terms(&self, terms: &mut Vec<Expression>) {
+    // Aplanamos el árbol manejando el signo (suma de negativos)
+    fn collect_terms(&self, terms: &mut Vec<(Expression, f64)>, sign: f64) {
         match self {
             Expression::Add(l, r) => {
-                l.collect_terms(terms);
-                r.collect_terms(terms);
+                l.collect_terms(terms, sign);
+                r.collect_terms(terms, sign);
             }
-            // Puedes añadir Subtract aquí si quieres tratar a-b como a + (-b)
-            other => terms.push(other.clone()),
+            Expression::Subtract(l, r) => {
+                l.collect_terms(terms, sign);
+                r.collect_terms(terms, -sign);
+            }
+            other => terms.push((other.clone(), sign)),
         }
     }
 
     pub fn simplify(self) -> Expression {
         match self {
-            Expression::Add(_, _) => {
+            // Manejamos sumas y restas con la misma lógica de "bolsa de términos"
+            Expression::Add(_, _) | Expression::Subtract(_, _) => {
                 let mut all_terms = Vec::new();
-                self.collect_terms(&mut all_terms);
+                self.collect_terms(&mut all_terms, 1.0);
 
                 let mut constant_sum = 0.0;
                 let mut var_counts: Vec<(String, f64)> = Vec::new();
                 let mut complex_terms: Vec<Expression> = Vec::new();
 
-                for term in all_terms {
+                for (term, sign) in all_terms {
                     match term.simplify() {
-                        Expression::Number(n) => constant_sum += n,
+                        Expression::Number(n) => constant_sum += n * sign,
+                        
                         Expression::Variable(v) => {
+                            let count = sign;
                             if let Some(pos) = var_counts.iter().position(|(name, _)| name == &v) {
-                                var_counts[pos].1 += 1.0;
+                                var_counts[pos].1 += count;
                             } else {
-                                var_counts.push((v, 1.0));
+                                var_counts.push((v, count));
+                            }
+                        }
+                        
+                        Expression::Multiply(l, r) => {
+                            if let (Expression::Number(n), Expression::Variable(v)) = (&*l, &*r) {
+                                let count = n * sign;
+                                if let Some(pos) = var_counts.iter().position(|(name, _)| name == v) {
+                                    var_counts[pos].1 += count;
+                                } else {
+                                    var_counts.push((v.clone(), count));
+                                }
+                            } else {
+                                complex_terms.push(Expression::Multiply(l, r));
                             }
                         }
                         other => complex_terms.push(other),
                     }
                 }
 
-                // Reconstrucción de términos simplificados
+                // Reconstrucción
                 let mut final_parts: Vec<Expression> = Vec::new();
 
-                // 1. Añadir variables agrupadas (ej: 3 * x)
                 for (name, count) in var_counts {
                     if count == 1.0 {
                         final_parts.push(Expression::Variable(name));
+                    } else if count == -1.0 {
+                        // Opcional: manejar -x visualmente mejor
+                        final_parts.push(Expression::Multiply(
+                            Box::new(Expression::Number(-1.0)),
+                            Box::new(Expression::Variable(name))
+                        ));
                     } else if count != 0.0 {
                         final_parts.push(Expression::Multiply(
                             Box::new(Expression::Number(count)),
@@ -83,23 +107,19 @@ impl Expression {
                     }
                 }
 
-                // 2. Añadir términos que no pudimos simplificar (divisiones, etc)
                 for ct in complex_terms {
                     final_parts.push(ct);
                 }
 
-                // Si no hay variables ni términos complejos, devolvemos la constante
                 if final_parts.is_empty() {
                     return Expression::Number(constant_sum);
                 }
 
-                // Unimos todo con Add
                 let mut result = final_parts.remove(0);
                 for t in final_parts {
                     result = Expression::Add(Box::new(result), Box::new(t));
                 }
 
-                // Añadimos la constante al final si no es cero
                 if constant_sum != 0.0 {
                     result = Expression::Add(Box::new(result), Box::new(Expression::Number(constant_sum)));
                 }
@@ -117,16 +137,6 @@ impl Expression {
                     (_, Expression::Number(n)) if n == 0.0 => Expression::Number(0.0),
                     (Expression::Number(n), _) if n == 0.0 => Expression::Number(0.0),
                     (ls, rs) => Expression::Multiply(Box::new(ls), Box::new(rs)),
-                }
-            }
-
-            Expression::Subtract(l, r) => {
-                let l_s = l.simplify();
-                let r_s = r.simplify();
-                match (l_s, r_s) {
-                    (Expression::Number(n1), Expression::Number(n2)) => Expression::Number(n1 - n2),
-                    (other, Expression::Number(n)) if n == 0.0 => other,
-                    (ls, rs) => Expression::Subtract(Box::new(ls), Box::new(rs)),
                 }
             }
 
@@ -159,9 +169,7 @@ impl Expression {
 #[wasm_bindgen]
 pub fn solve(input: &str) -> String {
     if input.trim().is_empty() { return "0".to_string(); }
-    
     let mut parser = Parser::new(Lexer::new(input));
-    
     if input.contains('=') {
         let (l, r) = parser.parse_statement();
         let sl = (*l).simplify();
