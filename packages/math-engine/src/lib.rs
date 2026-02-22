@@ -5,26 +5,27 @@ mod parser;
 use wasm_bindgen::prelude::*;
 use crate::lexer::Lexer;
 use crate::parser::Parser;
-use crate::token::Token;
+use crate::token::{Token, Expression}; // <--- IMPORTANTE: Añadir Expression aquí
 
 #[wasm_bindgen]
 pub fn solve(input: &str) -> String {
     if input.trim().is_empty() { return "0".to_string(); }
     let mut parser = Parser::new(Lexer::new(input));
+    
     let (l, r) = parser.parse_statement();
     
-    // Simplificamos ambos lados
+    // Simplificamos primero
     let sl = l.simplify();
     let sr = r.simplify();
 
-    // Si el lado derecho es 0 (porque no había '='), solo mostramos el izquierdo
-    if let crate::token::Expression::Number(0.0) = sr {
-        if !input.contains('=') {
-            return sl.visualize();
-        }
+    // Si detectamos que hay una ecuación (el usuario puso '='), resolvemos
+    if input.contains('=') {
+        let (final_l, final_r) = Expression::solve_linear(sl, sr, "x");
+        format!("{} = {}", final_l.visualize(), final_r.simplify().visualize())
+    } else {
+        // Si no hay '=', solo simplificamos el lado izquierdo
+        sl.visualize()
     }
-    
-    format!("{} = {}", sl.visualize(), sr.visualize())
 }
 
 #[wasm_bindgen]

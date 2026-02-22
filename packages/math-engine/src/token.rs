@@ -49,6 +49,18 @@ impl Expression {
         }
     }
 
+    pub fn contains_variable(&self, var_name: &str) -> bool {
+        match self {
+            Expression::Variable(v) => v == var_name,
+            Expression::Add(l, r) | Expression::Subtract(l, r) | 
+            Expression::Multiply(l, r) | Expression::Divide(l, r) | 
+            Expression::Power(l, r) => {
+                l.contains_variable(var_name) || r.contains_variable(var_name)
+            }
+            Expression::Number(_) => false,
+        }
+    }
+
     pub fn collect_terms(&self, terms: &mut Vec<(Expression, f64)>, sign: f64) {
         match self {
             Expression::Add(l, r) => {
@@ -150,6 +162,48 @@ impl Expression {
                 }
             }
             _ => self,
+        }
+    }
+
+    pub fn solve_linear(left: Expression, right: Expression, var_name: &str) -> (Expression, Expression) {
+        let l = left.simplify();
+        let r = right.simplify();
+
+        match l {
+            Expression::Add(a, b) => {
+                if a.contains_variable(var_name) {
+                    Self::solve_linear(*a, Expression::Subtract(Box::new(r), b), var_name)
+                } else {
+                    Self::solve_linear(*b, Expression::Subtract(Box::new(r), a), var_name)
+                }
+            },
+            Expression::Subtract(a, b) => {
+                if a.contains_variable(var_name) {
+                    Self::solve_linear(*a, Expression::Add(Box::new(r), b), var_name)
+                } else {
+                    Self::solve_linear(Expression::Multiply(Box::new(Expression::Number(-1.0)), b), 
+                                     Expression::Subtract(Box::new(r), a), var_name)
+                }
+            },
+            Expression::Multiply(a, b) => {
+                if a.contains_variable(var_name) {
+                    Self::solve_linear(*a, Expression::Divide(Box::new(r), b), var_name)
+                } else {
+                    Self::solve_linear(*b, Expression::Divide(Box::new(r), a), var_name)
+                }
+            },
+            Expression::Divide(l_expr, r_expr) => {
+                if l_expr.contains_variable(var_name) {
+                    // Caso: x / 2 = 10  =>  x = 10 * 2
+                    Self::solve_linear(*l_expr, Expression::Multiply(Box::new(r), r_expr), var_name)
+                } else if r_expr.contains_variable(var_name) {
+                    // Caso: 10 / x = 2  =>  10 = 2 * x (Este es más avanzado, lo giramos)
+                    Self::solve_linear(*r_expr, Expression::Divide(l_expr, Box::new(r)), var_name)
+                } else {
+                    (Expression::Divide(l_expr, r_expr), r)
+                }
+            },
+            _ => (l, r)
         }
     }
 }
