@@ -26,13 +26,23 @@ pub fn solve(input: &str) -> String {
             ).expand())
         ).simplify();
 
-        let final_r = Expression::solve_linear(unified, Expression::Number(Fraction::zero()), "x");
+        // --- NUEVA INTELIGENCIA DE AUTO-DETECCIÓN ---
+        let vars = unified.get_variables();
+        
+        let target_var = if vars.is_empty() {
+            "x".to_string() 
+        } else {
+            vars.iter().next().unwrap().clone()
+        };
+
+        let final_r = Expression::solve_linear(unified, Expression::Number(Fraction::zero()), &target_var);
 
         match final_r {
             Expression::Error(msg) => msg,
-            _ => format!("x = {}", final_r.visualize())
+            _ => format!("{} = {}", target_var, final_r.visualize())
         }
     } else {
+        // --- MODO SIMPLIFICADOR (Sin signo '=') ---
         let parsed = parser.parse_expression();
         if let Expression::Error(msg) = *parsed { return msg; }
         parsed.expand().simplify().visualize()

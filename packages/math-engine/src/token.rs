@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::ops::{Add, Sub, Mul, Div};
 use std::fmt;
 
@@ -6,6 +6,16 @@ use std::fmt;
 pub fn gcd(mut a: i64, mut b: i64) -> i64 {
     while b != 0 { let temp = b; b = a % b; a = temp; }
     a.abs()
+}
+
+pub fn exact_nth_root(val: i64, n: i32) -> Option<i64> {
+    if val < 0 && n % 2 == 0 { return None; }
+    let root = (val.abs() as f64).powf(1.0 / n as f64).round() as i64;
+    if root.pow(n as u32) == val.abs() {
+        if val < 0 { Some(-root) } else { Some(root) }
+    } else {
+        None
+    }
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -27,6 +37,16 @@ impl Fraction {
     pub fn zero() -> Self { Self::new(0, 1) }
     pub fn one() -> Self { Self::new(1, 1) }
     pub fn minus_one() -> Self { Self::new(-1, 1) }
+
+    pub fn pow(self, exp: i32) -> Self {
+        if exp == 0 { return Fraction::one(); }
+        if exp < 0 {
+            let pos_exp = (-exp) as u32;
+            Fraction::new(self.den.pow(pos_exp), self.num.pow(pos_exp))
+        } else {
+            Fraction::new(self.num.pow(exp as u32), self.den.pow(exp as u32))
+        }
+    }
 }
 
 impl Add for Fraction { type Output = Self; fn add(self, other: Self) -> Self { Self::new(self.num * other.den + other.num * self.den, self.den * other.den) } }
@@ -90,6 +110,24 @@ impl Expression {
             }
             Expression::Divide(l, r) => format!("({} / {})", l.visualize(), r.visualize()),
             Expression::Power(l, r) => format!("({} ^ {})", l.visualize(), r.visualize()),
+        }
+    }
+
+    pub fn get_variables(&self) -> BTreeSet<String> {
+        let mut vars = BTreeSet::new();
+        self.collect_variables(&mut vars);
+        vars
+    }
+
+    fn collect_variables(&self, vars: &mut BTreeSet<String>) {
+        match self {
+            Expression::Variable(v) => { vars.insert(v.clone()); },
+            Expression::Add(l, r) | Expression::Multiply(l, r) | 
+            Expression::Divide(l, r) | Expression::Power(l, r) => {
+                l.collect_variables(vars);
+                r.collect_variables(vars);
+            },
+            _ => {}
         }
     }
 
@@ -247,6 +285,37 @@ impl Expression {
                     (ls, rs) => Expression::Divide(Box::new(ls), Box::new(rs)),
                 }
             }
+            Expression::Power(l, r) => {
+                let l_sim = l.simplify_step();
+                let r_sim = r.simplify_step();
+                match (l_sim, r_sim) {
+                    (Expression::Number(base), Expression::Number(exp)) => {
+                        // 1. Caso: Exponente entero (ej. 2^3)
+                        if exp.den == 1 && exp.num >= -10 && exp.num <= 10 {
+                            Expression::Number(base.pow(exp.num as i32))
+                        } 
+                        // 2. Caso: Exponente fraccionario (ej. 25^(1/2)) -> Raíces
+                        else if exp.num >= -10 && exp.num <= 10 && exp.den > 1 && exp.den <= 10 {
+                            // Intentamos sacar la raíz 'den' tanto al numerador como al denominador
+                            if let (Some(r_num), Some(r_den)) = (exact_nth_root(base.num, exp.den as i32), exact_nth_root(base.den, exp.den as i32)) {
+                                let root_frac = Fraction::new(r_num, r_den);
+                                // Ahora elevamos al numerador del exponente (por si era algo como 8^(2/3))
+                                Expression::Number(root_frac.pow(exp.num as i32))
+                            } else {
+                                Expression::Power(Box::new(Expression::Number(base)), Box::new(Expression::Number(exp)))
+                            }
+                        } else {
+                            Expression::Power(Box::new(Expression::Number(base)), Box::new(Expression::Number(exp)))
+                        }
+                    },
+                    // Reglas universales de los exponentes
+                    (_, Expression::Number(n)) if n == Fraction::zero() => Expression::Number(Fraction::one()), // x^0 = 1
+                    (other, Expression::Number(n)) if n == Fraction::one() => other, // x^1 = x
+                    (Expression::Number(n), _) if n == Fraction::zero() => Expression::Number(Fraction::zero()), // 0^x = 0
+                    
+                    (ls, rs) => Expression::Power(Box::new(ls), Box::new(rs)),
+                }
+            }
             _ => self,
         }
     }
@@ -292,6 +361,19 @@ impl Expression {
                     Self::solve_linear(*a, Expression::Multiply(Box::new(r), b), var_name)
                 } else {
                     Self::solve_linear(*b, Expression::Divide(a, Box::new(r)), var_name)
+                }
+            },
+            Expression::Power(a, b) => {
+                if a.contains_variable(var_name) {
+                    // Caso: x^2 = 25  =>  x = 25^(1/2)
+                    if let Expression::Number(n) = *b {
+                        let inv_exp = Fraction::new(n.den, n.num);
+                        Self::solve_linear(*a, Expression::Power(Box::new(r), Box::new(Expression::Number(inv_exp))), var_name)
+                    } else {
+                        Expression::Error("Exponente complejo no soportado".into())
+                    }
+                } else {
+                    Expression::Error("Ecuación exponencial no soportada (x en el exponente)".into())
                 }
             },
             Expression::Variable(_) => r.simplify(),
